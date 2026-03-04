@@ -1,0 +1,9 @@
+data/*.db
+data/*.json
+__pycache__/
+*.pyc
+.env
+*.log
+session/
+*.session
+instaloader_session*
