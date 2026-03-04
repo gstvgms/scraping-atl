@@ -3,7 +3,7 @@
 # Conta Instagram usada para autenticação (conta criada exclusivamente para esta pesquisa)
 # Nota: este repositório é privado; caso torne-se público, mova as credenciais para .env
 INSTAGRAM_USERNAME = "pesquisas_teste_github"
-INSTAGRAM_PASSWORD = "atl123456"
+INSTAGRAM_PASSWORD = "apib123456"
 
 # Perfil alvo da coleta
 TARGET_PROFILE = "apiboficial"
