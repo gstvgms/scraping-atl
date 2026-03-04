@@ -75,16 +75,16 @@ def _aguardar_login_completo(driver: webdriver.Chrome, timeout: int = 120) -> bo
     Retorna True se o login foi bem-sucedido, False caso contrário.
     """
     log.info("Aguardando conclusão do login (máx. %d segundos)...", timeout)
+    # URLs que indicam login ainda em progresso (aguardar)
+    urls_aguardando = ["challenge", "checkpoint", "/login"]
     inicio = time.time()
     while time.time() - inicio < timeout:
         url_atual = driver.current_url
-        # Login concluído: está no feed principal (verificando o hostname para evitar redirecionamentos)
+        # Login concluído: está no feed principal ou em etapa final aceitável
         parsed = urlparse(url_atual)
         is_instagram = parsed.hostname in ("instagram.com", "www.instagram.com")
-        if is_instagram and not any(
-            x in url_atual for x in ["challenge", "checkpoint", "login", "accounts"]
-        ):
-            log.info("Login concluído com sucesso!")
+        if is_instagram and not any(x in url_atual for x in urls_aguardando):
+            log.info("Login concluído ou em etapa final: %s", url_atual)
             return True
         time.sleep(2)
     log.error("Tempo esgotado aguardando login.")
@@ -97,49 +97,112 @@ def _fazer_login(driver: webdriver.Chrome) -> bool:
     Se aparecer captcha ou verificação, aguarda intervenção manual do usuário.
     """
     log.info("Acessando Instagram...")
-    driver.get("https://www.instagram.com/accounts/login/")
-    time.sleep(random.uniform(3, 5))
+    driver.get("https://www.instagram.com/")
+    time.sleep(random.uniform(4, 6))
 
     try:
-        # Aceitar cookies se o botão aparecer
+        # Aceitar cookies se o botão aparecer — textos em PT-BR e EN
         try:
             btn_cookies = WebDriverWait(driver, 8).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Allow') or contains(text(),'Aceitar') or contains(text(),'Accept')]"))
+                EC.element_to_be_clickable((By.XPATH,
+                    "//button[contains(text(),'Permitir') or contains(text(),'Allow') or "
+                    "contains(text(),'Aceitar') or contains(text(),'Accept') or "
+                    "contains(text(),'Accept All') or contains(text(),'Aceitar tudo')]"
+                ))
             )
             btn_cookies.click()
             time.sleep(1)
         except TimeoutException:
             pass  # Botão de cookies não apareceu, tudo bem
 
-        # Preencher usuário
-        campo_usuario = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.NAME, "username"))
-        )
+        # Preencher usuário — tenta múltiplos seletores (Instagram muda com frequência)
+        seletores_usuario = [
+            "input[name='username']",
+            "input[aria-label='Número de celular, nome de usuário ou email']",
+            "input[aria-label='Phone number, username, or email']",
+            "input[type='text']",
+        ]
+
+        campo_usuario = None
+        for seletor in seletores_usuario:
+            try:
+                campo_usuario = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, seletor))
+                )
+                log.info("Campo de usuário encontrado com seletor: %s", seletor)
+                break
+            except TimeoutException:
+                continue
+
+        if campo_usuario is None:
+            log.error("Não foi possível encontrar o campo de usuário após tentar todos os seletores.")
+            return False
+
+        # Clicar no campo antes de digitar
+        campo_usuario.click()
+        time.sleep(0.5)
         campo_usuario.clear()
         for caractere in INSTAGRAM_USERNAME:
             campo_usuario.send_keys(caractere)
-            time.sleep(random.uniform(0.05, 0.15))
+            time.sleep(random.uniform(0.08, 0.18))
 
         time.sleep(random.uniform(0.5, 1.0))
 
-        # Preencher senha
-        campo_senha = driver.find_element(By.NAME, "password")
+        # Preencher senha — tenta múltiplos seletores
+        seletores_senha = [
+            "input[name='password']",
+            "input[aria-label='Senha']",
+            "input[aria-label='Password']",
+            "input[type='password']",
+        ]
+
+        campo_senha = None
+        for seletor in seletores_senha:
+            try:
+                campo_senha = driver.find_element(By.CSS_SELECTOR, seletor)
+                log.info("Campo de senha encontrado com seletor: %s", seletor)
+                break
+            except NoSuchElementException:
+                continue
+
+        if campo_senha is None:
+            log.error("Não foi possível encontrar o campo de senha.")
+            return False
+
+        campo_senha.click()
+        time.sleep(0.5)
         campo_senha.clear()
         for caractere in INSTAGRAM_PASSWORD:
             campo_senha.send_keys(caractere)
-            time.sleep(random.uniform(0.05, 0.15))
+            time.sleep(random.uniform(0.08, 0.18))
 
+        # Clicar em entrar — tenta múltiplos seletores
         time.sleep(random.uniform(0.8, 1.5))
+        try:
+            btn_entrar = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+            btn_entrar.click()
+        except NoSuchElementException:
+            try:
+                # Fallback: botão com texto "Entrar" ou equivalente em inglês
+                btn_entrar = driver.find_element(
+                    By.XPATH,
+                    "//button[contains(text(),'Entrar') or contains(text(),'Log in') or contains(text(),'Log In')]"
+                )
+                btn_entrar.click()
+            except NoSuchElementException:
+                log.error("Botão de login não encontrado.")
+                return False
 
-        # Clicar em entrar
-        btn_entrar = driver.find_element(By.XPATH, "//button[@type='submit']")
-        btn_entrar.click()
         log.info("Credenciais enviadas. Aguardando resposta do Instagram...")
-
-        time.sleep(random.uniform(3, 5))
+        time.sleep(random.uniform(4, 6))
 
     except TimeoutException as e:
         log.error("Timeout ao tentar preencher formulário de login: %s", e)
+        try:
+            driver.save_screenshot("data/debug_login.png")
+            log.info("Screenshot de debug salva em data/debug_login.png")
+        except Exception:
+            pass
         return False
 
     # Aguarda login completo (com possibilidade de resolução manual de captcha)
